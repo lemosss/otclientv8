@@ -103,6 +103,8 @@ OptionPanel
   Label
     id: walkStairsDelayLabel
     margin-top: 10
+    visible: false
+    height: 0
     @onSetup: |
       local value = modules.client_options.getOption('walkStairsDelay')
       self:setText(tr('Walk delay after floor change: %s ms', value))
@@ -114,6 +116,8 @@ OptionPanel
     margin-top: 3
     minimum: 0
     maximum: 300
+    visible: false
+    height: 0
     $mobile:
       visible: false
 

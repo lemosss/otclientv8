@@ -25,10 +25,10 @@ local defaultOptions = {
   enableMusicSound = false,
   musicSoundVolume = 100,
   botSoundVolume = 100,
-  enableLights = false,
+  enableLights = true,
   floorFading = 500,
   crosshair = 2,
-  ambientLight = 100,
+  ambientLight = 0,
   optimizationLevel = 1,
   displayNames = true,
   displayHealth = true,
@@ -115,7 +115,8 @@ function init()
   optionsTabBar:addTab(tr('Graphics'), graphicsPanel, '/images/optionstab/graphics')
 
   audioPanel = g_ui.loadUI('audio')
-  optionsTabBar:addTab(tr('Audio'), audioPanel, '/images/optionstab/audio')
+  -- audio tab hidden by user request
+  -- optionsTabBar:addTab(tr('Audio'), audioPanel, '/images/optionstab/audio')
 
 
   extrasPanel = g_ui.createWidget('OptionPanel')
@@ -125,12 +126,14 @@ function init()
     extrasButton:setText(g_extras.getDescription(v))
     extrasPanel:addChild(extrasButton)
   end
-  if not g_game.getFeature(GameNoDebug) and not g_app.isMobile() then
-    optionsTabBar:addTab(tr('Extras'), extrasPanel, '/images/optionstab/extras')
-  end
+  -- extras tab hidden by user request
+  -- if not g_game.getFeature(GameNoDebug) and not g_app.isMobile() then
+  --   optionsTabBar:addTab(tr('Extras'), extrasPanel, '/images/optionstab/extras')
+  -- end
 
   customPanel = g_ui.loadUI('custom')
-  optionsTabBar:addTab(tr('Custom'), customPanel, '/images/optionstab/features')
+  -- custom tab hidden by user request
+  -- optionsTabBar:addTab(tr('Custom'), customPanel, '/images/optionstab/features')
 
   optionsButton = modules.client_topmenu.addLeftButton('optionsButton', tr('Options'), '/images/topbuttons/options', toggle)
   audioButton = modules.client_topmenu.addLeftButton('audioButton', tr('Audio'), '/images/topbuttons/audio', function() toggleOption('enableAudio') end)
