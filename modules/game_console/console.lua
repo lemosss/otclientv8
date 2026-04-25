@@ -965,7 +965,20 @@ function sendMessage(message, tab)
       name = chatCommandPrivate
       isPrivateCommand = true
     elseif tab.npcChat then
-      speaktypedesc = 'privatePlayerToNpc'
+      -- Pre-8.20 protocols (Tibia 7.x) had no separate NpcTo packet; the
+      -- client-side protocol mapping has no entry for MessageNpcTo on
+      -- those versions, so the wire byte ends up bogus and the OTX 7.72
+      -- server drops it in Game::playerSay's default case. The original
+      -- Cipsoft 7.x clients always used local SAY for NPC dialogue, so
+      -- do the same here when running on a legacy protocol -- the NPCs
+      -- tab UI still works because incoming NpcFrom replies are routed
+      -- by addPrivateText regardless of how the player's outgoing line
+      -- was sent.
+      if g_game.getClientVersion() < 820 then
+        speaktypedesc = 'say'
+      else
+        speaktypedesc = 'privatePlayerToNpc'
+      end
     elseif tab == violationReportTab then
       if violationReportTab.locked then
         modules.game_textmessage.displayFailureMessage('Wait for a gamemaster reply.')
