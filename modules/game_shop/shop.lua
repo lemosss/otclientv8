@@ -149,7 +149,7 @@ function createShop()
   if shop then return end
   shop = g_ui.displayUI('shop')
   shop:hide()
-  shopButton = modules.client_topmenu.addRightGameToggleButton('shopButton', tr('Shop'), '/images/topbuttons/shop', toggle, false, 8)
+  shopButton = modules.client_topmenu.addRightGameToggleButton('shopButton', tr('Shop'), '/images/topbuttons/shop', toggle, false, 99)
   connect(shop.categories, { onChildFocusChange = changeCategory })
 end
 
