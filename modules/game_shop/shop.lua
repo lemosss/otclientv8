@@ -280,8 +280,11 @@ end
 
 function onCoinBalance(coins, transferableCoins)
   if not shop or otcv8shop then return end
-  shop.infoPanel.points:setText(tr("Points:") .. " " .. coins)
-  transferWindow.coinsBalance:setText(tr('Transferable Tibia Coins: ') .. coins)
+  -- OTCv8 runs on Lua 5.1 where every number is a double, so concatenating
+  -- the coin value via ".." gives "1000.0". Format as integer instead.
+  local coinsStr = string.format("%d", coins)
+  shop.infoPanel.points:setText(tr("Points:") .. " " .. coinsStr)
+  transferWindow.coinsBalance:setText(tr('Transferable Tibia Coins: ') .. coinsStr)
   transferWindow.coinsAmount:setMaximum(coins)
   shop.infoPanel.buy:hide()
   shop.infoPanel:setHeight(20)
