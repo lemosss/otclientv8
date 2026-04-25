@@ -234,6 +234,8 @@ MainWindow
       anchors.right: parent.right
       margin-left: 5
       margin-top: 3
+      visible: false
+      height: 0
       @onCheckChange: modules.game_npctrade.onIgnoreCapacityChange()
 
     CheckBox

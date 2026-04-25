@@ -172,7 +172,7 @@ function onTradeTypeChange(radioTabs, selected, deselected)
 
   local currentTradeType = getCurrentTradeType()
   buyWithBackpack:setVisible(false)
-  ignoreCapacity:setVisible(currentTradeType == BUY)
+  ignoreCapacity:setVisible(false)
   ignoreEquipped:setVisible(currentTradeType == SELL)
   showAllItems:setVisible(currentTradeType == SELL)
   sellAllButton:setVisible(currentTradeType == SELL)
