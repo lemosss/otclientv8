@@ -854,6 +854,7 @@ function sendCurrentMessage()
   if not isChatEnabled() then return end
   consoleTextEdit:clearText()
   sendMessage(message)
+  disableChat()
   return true
 end
 
