@@ -178,7 +178,7 @@ function onTradeTypeChange(radioTabs, selected, deselected)
   showAllItems:setVisible(false)
   showAllItems:setChecked(true)
   sellAllButton:setVisible(currentTradeType == SELL)
-  sellAllWithDelayButton:setVisible(currentTradeType == SELL)
+  sellAllWithDelayButton:setVisible(false)
   
   refreshTradeItems()
   refreshPlayerGoods()
