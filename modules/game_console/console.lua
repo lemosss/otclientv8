@@ -143,7 +143,13 @@ function init()
   g_keyboard.bindKeyPress('Shift+Down', function() navigateMessageHistory(-1) end, consolePanel)
   g_keyboard.bindKeyPress('Tab', function() consoleTabBar:selectNextTab() end, consolePanel)
   g_keyboard.bindKeyPress('Shift+Tab', function() consoleTabBar:selectPrevTab() end, consolePanel)
-  g_keyboard.bindKeyDown('Enter', sendCurrentMessage, consolePanel)
+  -- bind on rootWidget so Enter fires regardless of focus (textedit,
+  -- viewport, etc.). sendCurrentMessage handles all three cases:
+  -- send / toggle-to-WASD / toggle-to-chat. Returning true consumes
+  -- the event so the gameRootPanel quickFunc bindings (still installed
+  -- by enableChat/disableChat for backwards compatibility) do not
+  -- double-fire.
+  g_keyboard.bindKeyDown('Enter', sendCurrentMessage, rootWidget)
   g_keyboard.bindKeyPress('Ctrl+A', function() consoleTextEdit:clearText() end, consolePanel)
 
   -- apply buttom functions after loaded
@@ -206,18 +212,17 @@ function enableChat(temporarily)
   consoleTextEdit:setText("")
   consoleTextEdit:focus()
 
-  local gameRootPanel = modules.game_interface.getRootPanel()
-  g_keyboard.unbindKeyDown("Enter", gameRootPanel)
-  
+  -- Enter is handled by the rootWidget sendCurrentMessage binding.
+  -- For temporary chat (driven by hotkeys_extra.toogleWsad), keep
+  -- Escape as a cancel-back-to-WASD shortcut.
   if temporarily then
-    local quickFunc = function()
+    local gameRootPanel = modules.game_interface.getRootPanel()
+    local escFunc = function()
       if not g_game.isOnline() then return end
-      g_keyboard.unbindKeyDown("Enter", gameRootPanel)
       g_keyboard.unbindKeyDown("Escape", gameRootPanel)
       disableChat(temporarily)
     end
-    g_keyboard.bindKeyDown("Enter", quickFunc, gameRootPanel)
-    g_keyboard.bindKeyDown("Escape", quickFunc, gameRootPanel)  
+    g_keyboard.bindKeyDown("Escape", escFunc, gameRootPanel)
   end
 
   modules.game_walking.disableWSAD()
@@ -237,16 +242,9 @@ function disableChat(temporarily)
   consoleTextEdit:setVisible(false)
   consoleTextEdit:setText("")
 
-  local quickFunc = function()
-    if not g_game.isOnline() then return end
-    if consoleToggleChat:isChecked() then
-      consoleToggleChat:setChecked(false)
-    end
-    enableChat(true)
-  end
-  
-  local gameRootPanel = modules.game_interface.getRootPanel()
-  g_keyboard.bindKeyDown("Enter", quickFunc, gameRootPanel)
+  -- Enter is handled by the rootWidget sendCurrentMessage binding,
+  -- which calls enableChat() when chat is disabled and text is empty.
+  -- No separate gameRootPanel quickFunc needed.
 
   modules.game_walking.enableWSAD()
 
@@ -839,13 +837,24 @@ function processMessageMenu(mousePos, mouseButton, creatureName, text, label, ta
 end
 
 function sendCurrentMessage()
+  if g_app.isMobile() or not g_game.isOnline() then return end
+
   local message = consoleTextEdit:getText()
-  if #message == 0 then return end
+
+  -- empty Enter: toggle chat <-> WASD without needing a mouse click
+  if #message == 0 then
+    if isChatEnabled() then
+      disableChat()
+    else
+      enableChat()
+    end
+    return true
+  end
+
   if not isChatEnabled() then return end
   consoleTextEdit:clearText()
-
-  -- send message
   sendMessage(message)
+  return true
 end
 
 function addFilter(filter)
