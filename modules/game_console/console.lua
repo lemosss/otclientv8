@@ -660,6 +660,7 @@ function addTabText(text, speaktype, tab, creatureName)
     return true
   end
   label.onDragLeave = function(self, droppedWidget, mousePos)
+    if not consoleBuffer.selection then return true end  -- nothing selected; ignore
     local text = {}
     for selectionChild = consoleBuffer.selection.first, consoleBuffer.selection.last do
       local label = self:getParent():getChildByIndex(selectionChild)
@@ -849,6 +850,23 @@ function sendCurrentMessage()
       enableChat()
     end
     return true
+  end
+
+  -- Player Shop: while own shop is open, allow only a whitelist of commands.
+  if modules.game_playershop and modules.game_playershop.iAmSelling then
+    local allowed = false
+    local m = message:lower()
+    -- exact / prefix matches:
+    if m == '!fecharloja' or m == '!lojas' then allowed = true end
+    if m:sub(1, 6) == '/shop ' or m == '/shop' then allowed = true end
+    if not allowed then
+      consoleTextEdit:clearText()
+      if modules.game_textmessage then
+        modules.game_textmessage.displayFailureMessage(
+          'Voce so pode digitar !fecharloja enquanto a loja esta aberta.')
+      end
+      return true
+    end
   end
 
   if not isChatEnabled() then return end
@@ -1074,6 +1092,9 @@ function onTalk(name, level, mode, message, channelId, creaturePos)
     modules.game_textmessage.displayBroadcastMessage(name .. ': ' .. message)
     return
   end
+
+  -- (Player Shop chat-log filter removed: bubbles are now rendered entirely
+  -- client-side via StaticText, no server `say` calls, so nothing to filter.)
 
   local isNpcMode = (mode == MessageModes.NpcFromStartBlock or mode == MessageModes.NpcFrom)
 

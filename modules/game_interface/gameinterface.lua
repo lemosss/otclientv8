@@ -552,13 +552,27 @@ function createThingMenu(menuPosition, lookThing, useThing, creatureThing)
   end
 
   -- hooked menu options
-  for _,category in pairs(hookedMenuOptions) do
-    if not isMenuHookCategoryEmpty(category) then
-      menu:addSeparator()
-      for name,opt in pairs(category) do
-        if opt and opt.condition(menuPosition, lookThing, useThing, creatureThing) then
-          menu:addOption(name, function() opt.callback(menuPosition, 
-            lookThing, useThing, creatureThing) end, opt.shortcut)
+  do
+    local sortedKeys = {}
+    for k in pairs(hookedMenuOptions) do sortedKeys[#sortedKeys + 1] = k end
+    table.sort(sortedKeys)
+    for _, k in ipairs(sortedKeys) do
+      local category = hookedMenuOptions[k]
+      if not isMenuHookCategoryEmpty(category) then
+        -- Only add the separator if at least one option's condition matches.
+        -- (Otherwise empty categories produce visible empty separators.)
+        local visible = {}
+        for name,opt in pairs(category) do
+          if opt and opt.condition(menuPosition, lookThing, useThing, creatureThing) then
+            visible[#visible + 1] = { name = name, opt = opt }
+          end
+        end
+        if #visible > 0 then
+          menu:addSeparator()
+          for _, v in ipairs(visible) do
+            menu:addOption(v.name, function() v.opt.callback(menuPosition,
+              lookThing, useThing, creatureThing) end, v.opt.shortcut)
+          end
         end
       end
     end
@@ -721,6 +735,10 @@ function processMouseAction(menuPosition, mouseButton, autoWalkPos, lookThing, u
     local autoWalkTile = g_map.getTile(autoWalkPos)
     if autoWalkTile and not autoWalkTile:isWalkable(true) then
       modules.game_textmessage.displayFailureMessage(tr('Sorry, not possible.'))
+      return false
+    end
+    -- Player Shop: block click-to-walk while own shop is open.
+    if modules.game_playershop and modules.game_playershop.iAmSelling then
       return false
     end
     player:autoWalk(autoWalkPos)
