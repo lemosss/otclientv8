@@ -222,10 +222,25 @@ local function onStateBroadcast(proto, opcode, buffer)
         -- O icone agora vem via protocolo nativo (skull id 7 = SHOP_ICON,
         -- mapeado pro shop_icon.png em gamelib/creature.lua). O server
         -- envia no AddCreature, instantaneo igual PK skull.
+        --
+        -- Texto da loja FIXO acima da cabeca do char: usa o sistema de
+        -- "title" nativo do OTC v8 (Creature:setTitle), que renderiza um
+        -- texto extra colado no nome via drawInformation no engine. Por
+        -- ser nativo, segue a creature quando ela anda, nao decai e nao
+        -- polui o chat. Cor dourada pra destacar de outros titles.
+        if creature and creature.setTitle then
+            pcall(function()
+                creature:setTitle(text or '', 'verdana-11px-rounded', '#FFD700')
+            end)
+        end
     else
         sellingCreatures[cid] = nil
         -- Mesmo: o skull volta ao real automaticamente no proximo packet
         -- de update do server (quando storage 88810 voltar a 0).
+        -- Limpa o title fixo da loja.
+        if creature and creature.clearTitle then
+            pcall(function() creature:clearTitle() end)
+        end
         -- Se eu (comprador) estou vendo justamente a loja desse seller que
         -- acabou de fechar (ultimo item vendido, logout, expiracao, etc),
         -- fecha automaticamente minha view-window pra nao ficar pendurada.
@@ -366,19 +381,21 @@ function init()
     -- All optional setup wrapped in pcalls so nothing breaks the hook.
     pcall(function() g_ui.importStyle('playershop.otui') end)
     -- Quando uma creature aparece no campo de visao do client (subiu/desceu
-    -- escada, andou pra perto, etc.), re-aplica o icone de venda imediatamente
-    -- se ela esta no nosso cache `sellingCreatures`. Isso elimina o delay de
-    -- 1-3s que vinha do stateTick periodico do server.
+    -- escada, andou pra perto, etc.), re-aplica o TITLE da loja se ela esta
+    -- no nosso cache `sellingCreatures`. O icone (skull) ja vem via protocol
+    -- nativo. O title eh client-side state e some quando a creature eh
+    -- destruida/recriada, entao precisa ser re-aplicado nesse hook.
     pcall(function()
         connect(Creature, {
             onAppear = function(creature)
                 if not creature then return end
                 local cid = creature:getId()
-                if sellingCreatures and sellingCreatures[cid] then
-                    if creature.setSkull then creature:setSkull(1) end
-                    if creature.setSkullTexture then
-                        creature:setSkullTexture(SHOP_ICON_PATH)
-                    end
+                local entry = sellingCreatures and sellingCreatures[cid]
+                if entry and creature.setTitle then
+                    pcall(function()
+                        creature:setTitle(entry.text or '',
+                            'verdana-11px-rounded', '#FFD700')
+                    end)
                 end
             end
         })
