@@ -17,7 +17,7 @@ OPCODE_INVENTORY_LIST         = 137
 OPCODE_REJECT                 = 138
 
 VIP_GOLD_COLOR = '#FFD700'
-SHOP_ICON_PATH = '/images/game/slots/coins'  -- same asset as the Shop's "Get Coins" icon
+SHOP_ICON_PATH = '/images/game/slots/coins'  -- same icon as Shop module's "Get Coins"
 
 -- Per-creature bubble widgets.
 sellingCreatures = {}      -- [creatureId] = { text, bubbleWidget }
@@ -218,8 +218,16 @@ local function onStateBroadcast(proto, opcode, buffer)
     if isOpen == 1 then
         local text; text, pos = readStr(buffer, pos + 1)
         sellingCreatures[cid] = { text = text }
+        if creature then
+            -- Shield slot renders next to the name (like in the user's reference).
+            if creature.setShield then creature:setShield(1) end
+            if creature.setShieldTexture then creature:setShieldTexture(SHOP_ICON_PATH) end
+        end
     else
         sellingCreatures[cid] = nil
+        if creature and creature.setShield then
+            creature:setShield(0)
+        end
     end
     local lp = g_game.getLocalPlayer()
     if lp and cid == lp:getId() then
