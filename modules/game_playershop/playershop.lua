@@ -17,7 +17,7 @@ OPCODE_INVENTORY_LIST         = 137
 OPCODE_REJECT                 = 138
 
 VIP_GOLD_COLOR = '#FFD700'
-SHOP_ICON_PATH = '/images/game/slots/coins'  -- same icon as Shop module's "Get Coins"
+SHOP_ICON_PATH = '/modules/game_playershop/icons/shop_icon'
 
 -- Per-creature bubble widgets.
 sellingCreatures = {}      -- [creatureId] = { text, bubbleWidget }
@@ -200,6 +200,7 @@ end
 -- ----------------------------------------------------------------------------
 -- Opcode handlers (server -> client)
 -- ----------------------------------------------------------------------------
+local function readU8(buf, pos)  return (buf:byte(pos) or 0), pos + 1 end
 local function readU16(buf, pos) return (buf:byte(pos+1) or 0) * 256 + (buf:byte(pos) or 0), pos + 2 end
 local function readU32(buf, pos)
     local b1, b2, b3, b4 = buf:byte(pos), buf:byte(pos+1), buf:byte(pos+2), buf:byte(pos+3)
@@ -218,20 +219,36 @@ local function onStateBroadcast(proto, opcode, buffer)
     if isOpen == 1 then
         local text; text, pos = readStr(buffer, pos + 1)
         sellingCreatures[cid] = { text = text }
-        if creature then
-            -- Shield slot renders next to the name (like in the user's reference).
-            if creature.setShield then creature:setShield(1) end
-            if creature.setShieldTexture then creature:setShieldTexture(SHOP_ICON_PATH) end
-        end
+        -- O icone agora vem via protocolo nativo (skull id 7 = SHOP_ICON,
+        -- mapeado pro shop_icon.png em gamelib/creature.lua). O server
+        -- envia no AddCreature, instantaneo igual PK skull.
     else
         sellingCreatures[cid] = nil
-        if creature and creature.setShield then
-            creature:setShield(0)
-        end
+        -- Mesmo: o skull volta ao real automaticamente no proximo packet
+        -- de update do server (quando storage 88810 voltar a 0).
+        -- Se eu (comprador) estou vendo justamente a loja desse seller que
+        -- acabou de fechar (ultimo item vendido, logout, expiracao, etc),
+        -- fecha automaticamente minha view-window pra nao ficar pendurada.
+        pcall(function()
+            if shop_view and shop_view.viewSellerId == cid then
+                if shop_view_close then shop_view_close() end
+            end
+            -- Fallback: tambem checar a global viewWindow / viewSellerId
+            -- caso shop_view module table nao esteja exposto.
+            if viewSellerId == cid and viewWindow then
+                if shop_view_close then shop_view_close()
+                else viewWindow:destroy(); viewWindow = nil end
+            end
+        end)
     end
     local lp = g_game.getLocalPlayer()
     if lp and cid == lp:getId() then
+        local prev = iAmSelling
         iAmSelling = (isOpen == 1)
+        if prev ~= iAmSelling then
+            print(('[playershop] state changed: iAmSelling %s -> %s'):format(
+                tostring(prev), tostring(iAmSelling)))
+        end
     end
 end
 
@@ -301,7 +318,22 @@ function init()
             'playershop_a_create',
             'Open Shop',
             function(menuPos, look, use, creature)
-                if openCreateShop then openCreateShop() end
+                local lp = g_game.getLocalPlayer()
+                print(('[playershop] Open Shop click: iAmSelling=%s'):format(
+                    tostring(iAmSelling)))
+                if iAmSelling and lp then
+                    -- Ja tem loja ativa: pede SHOP_DATA da propria loja
+                    -- pra abrir em modo owner-view (estoque atualizado).
+                    ownerRequested = true
+                    local proto = g_game.getProtocolGame()
+                    if proto then
+                        proto:sendExtendedOpcode(OPCODE_SHOP_REQUEST,
+                            packU32(lp:getId()))
+                    end
+                else
+                    -- Sem loja ativa: abre a janela de criar loja.
+                    if openCreateShop then openCreateShop() end
+                end
             end,
             function(menuPos, look, use, creature)
                 local lp = g_game.getLocalPlayer()
@@ -318,6 +350,13 @@ function init()
                 if not creature or not creature:isPlayer() then return false end
                 local lp = g_game.getLocalPlayer()
                 if lp and creature:getId() == lp:getId() then return false end
+                -- Source of truth primaria: o skull. Se eh 7 (ShopIcon), o
+                -- server marcou o player como vendedor via getSkullClient.
+                -- Esse caminho eh instantaneo (vem no AddCreature packet).
+                if creature.getSkull and creature:getSkull() == 7 then
+                    return true
+                end
+                -- Fallback: cache populado via STATE_BROADCAST.
                 return sellingCreatures[creature:getId()] ~= nil
             end
         )
@@ -326,6 +365,24 @@ function init()
 
     -- All optional setup wrapped in pcalls so nothing breaks the hook.
     pcall(function() g_ui.importStyle('playershop.otui') end)
+    -- Quando uma creature aparece no campo de visao do client (subiu/desceu
+    -- escada, andou pra perto, etc.), re-aplica o icone de venda imediatamente
+    -- se ela esta no nosso cache `sellingCreatures`. Isso elimina o delay de
+    -- 1-3s que vinha do stateTick periodico do server.
+    pcall(function()
+        connect(Creature, {
+            onAppear = function(creature)
+                if not creature then return end
+                local cid = creature:getId()
+                if sellingCreatures and sellingCreatures[cid] then
+                    if creature.setSkull then creature:setSkull(1) end
+                    if creature.setSkullTexture then
+                        creature:setSkullTexture(SHOP_ICON_PATH)
+                    end
+                end
+            end
+        })
+    end)
     pcall(function()
         ProtocolGame.registerExtendedOpcode(OPCODE_SHOP_STATE_BROADCAST, onStateBroadcast)
         ProtocolGame.registerExtendedOpcode(OPCODE_VIP_SHOP_STATUS,      onVipStatus)
@@ -409,6 +466,7 @@ function packStr(s)
     s = s or ''
     return packU16(#s) .. s
 end
+function readPosU8(buf, pos)   return readU8(buf, pos)   end
 function readPosU16(buf, pos)  return readU16(buf, pos)  end
 function readPosU32(buf, pos)  return readU32(buf, pos)  end
 function readPosStr(buf, pos)  return readStr(buf, pos)  end

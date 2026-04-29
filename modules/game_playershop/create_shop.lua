@@ -122,9 +122,16 @@ function openItemPicker(slotIndex)
     destroyPickerWindow()
     pendingSlotIndex = slotIndex
 
-    -- Ask the server for the latest depot snapshot.
-    if modules.game_playershop and modules.game_playershop.sendOpcode then
-        modules.game_playershop.sendOpcode(OPCODE_INVENTORY_LIST, '')
+    -- IMPORTANT: o server regenera os uids virtuais a cada chamada de
+    -- SendInventoryList (eh um indice incremental local). Se a gente
+    -- pedisse a lista de novo aqui, os entryUid ja salvos em outros slots
+    -- ficariam orfaos e o filtro de "ja-alocado" nao reconheceria mais.
+    -- Por isso so pedimos UMA vez (no openCreateShop). Re-pedir so ao
+    -- reabrir o create-shop, que limpa tudo.
+    if not inventoryList or #inventoryList == 0 then
+        if modules.game_playershop and modules.game_playershop.sendOpcode then
+            modules.game_playershop.sendOpcode(OPCODE_INVENTORY_LIST, '')
+        end
     end
 
     pickerWindow = g_ui.createWidget('PickerWindow', rootWidget)
@@ -160,9 +167,14 @@ function openItemPicker(slotIndex)
         end
     end, pickerWindow)
 
-    -- If we already have a snapshot from a previous open, populate now.
+    -- Snapshot ja em cache: popula no proximo frame pra que o grid panel
+    -- ja tenha tido chance de calcular sua largura/altura. Sem o defer, o
+    -- grid as vezes retorna size 0 na primeira chamada e os cells nao
+    -- aparecem ate o user fazer alguma acao (tipo digitar no buscador).
     if inventoryList and #inventoryList > 0 then
-        populatePickerList()
+        scheduleEvent(function()
+            if pickerWindow and populatePickerList then populatePickerList() end
+        end, 1)
     end
 end
 
@@ -186,36 +198,73 @@ function populatePickerList()
     if not panel then return end
     panel:destroyChildren()
     pickerSelected = nil
+
+    -- Debug: dump do inventoryList recebido do server.
+    print(('[playershop] populatePicker: inventoryList=%d entries, search=%q'):format(
+        #(inventoryList or {}), pickerSearchText or ''))
+    for i, e in ipairs(inventoryList or {}) do
+        print(('  [%d] id=%s count=%s uid=%s stackable=%s name=%q'):format(
+            i, tostring(e.id), tostring(e.count), tostring(e.uid),
+            tostring(e.stackable), tostring(e.name)))
+    end
     do
         local okBtn = pickerWindow:recursiveGetChildById('pickOkBtn')
         if okBtn then okBtn:setEnabled(false) end
     end
 
-    -- Sum quantities already allocated in OTHER slots (the slot we're editing
-    -- doesn't count -- the user is replacing whatever was there).
-    local allocatedById = {}
+    -- Para STACKABLES: subtraimos o total ja alocado em outros slots por
+    -- itemId (porque eles compartilham o mesmo "estoque agregado").
+    -- Para NON-STACKABLES: cada entry eh uma instancia unica (uid distinto
+    -- vindo do server), entao escondemos pelo uid quando ja esta em uso.
+    local allocatedStackById = {}
+    local allocatedNonStackUid = {}
     for idx, s in pairs(slots) do
         if idx ~= pendingSlotIndex and s.entryId and s.count and s.count > 0 then
-            allocatedById[s.entryId] = (allocatedById[s.entryId] or 0) + s.count
-        end
-    end
-
-    -- Build filtered list, subtracting already-allocated quantities so the
-    -- user can't double-book the same physical stack across slots.
-    local matches = {}
-    for _, e in ipairs(inventoryList or {}) do
-        local available = (e.count or 0) - (allocatedById[e.id] or 0)
-        if available > 0 then
-            if pickerSearchText == '' or (e.name or ''):lower():find(pickerSearchText, 1, true) then
-                local cloned = {
-                    id = e.id, uid = e.uid, charges = e.charges,
-                    name = e.name, count = available,
-                }
-                matches[#matches + 1] = cloned
+            if s.stackable then
+                allocatedStackById[s.entryId] = (allocatedStackById[s.entryId] or 0) + s.count
+            elseif s.entryUid and s.entryUid ~= 0 then
+                allocatedNonStackUid[s.entryUid] = true
             end
         end
     end
+
+    local matches = {}
+    for _, e in ipairs(inventoryList or {}) do
+        -- Determinar se entry e visivel.
+        local visible
+        local effectiveCount = e.count or 1
+        if e.stackable then
+            local available = effectiveCount - (allocatedStackById[e.id] or 0)
+            visible = available > 0
+            if visible then effectiveCount = available end
+        else
+            visible = not allocatedNonStackUid[e.uid]
+        end
+
+        -- Aplicar filtro de busca (texto pode ser '', nil, ou termo).
+        local matchSearch = true
+        local q = pickerSearchText or ''
+        if q ~= '' then
+            local nm = (e.name or ''):lower()
+            matchSearch = nm:find(q, 1, true) ~= nil
+        end
+
+        if visible and matchSearch then
+            matches[#matches + 1] = {
+                id = e.id, uid = e.uid, charges = e.charges,
+                name = e.name, count = effectiveCount,
+                stackable = e.stackable,
+            }
+        end
+    end
     table.sort(matches, function(a, b) return (a.name or '') < (b.name or '') end)
+
+    -- Debug: o que vai virar cell visivel.
+    print(('[playershop] populatePicker: %d matches after filter'):format(#matches))
+    for i, m in ipairs(matches) do
+        print(('  match[%d] id=%s count=%s name=%q'):format(
+            i, tostring(m.id), tostring(m.count), tostring(m.name)))
+    end
 
     if #matches == 0 then
         if emptyHint then
@@ -226,33 +275,47 @@ function populatePickerList()
     end
     if emptyHint then emptyHint:setVisible(false) end
 
+    -- Cria cada cell envolvendo em pcall: se um item especifico tiver
+    -- atributo esquisito que crashe setItemId/setItemCount, os outros
+    -- ainda aparecem.
     for _, e in ipairs(matches) do
-        local cell = g_ui.createWidget('PickerCell', panel)
-        local cellItem = cell:getChildById('cellItem')
-        local cellName = cell:getChildById('cellName')
+        local ok, err = pcall(function()
+            local cell = g_ui.createWidget('PickerCell', panel)
+            local cellItem = cell:getChildById('cellItem')
+            local cellName = cell:getChildById('cellName')
 
-        cellItem:setItemId(e.id)
-        cellItem:setItemCount(e.count)
-        cellName:setText(truncate(e.name or '', 8))
-        cell:setTooltip(('%dx %s\n(id %d)'):format(e.count, e.name or '', e.id))
-        cell.entry = e
+            cellItem:setItemId(e.id)
+            cellItem:setItemCount(e.count)
+            cellName:setText(truncate(e.name or '', 8))
+            cell:setTooltip(('%dx %s\n(id %d)'):format(e.count, e.name or '', e.id))
+            cell.entry = e
 
-        cell.onClick = function(self)
-            highlightCell(self)
-        end
-        cell.onDoubleClick = function(self)
-            highlightCell(self)
-            promptCountAndAssign(pendingSlotIndex, e)
+            cell.onClick = function(self)
+                highlightCell(self)
+            end
+            cell.onDoubleClick = function(self)
+                highlightCell(self)
+                promptCountAndAssign(pendingSlotIndex, e)
+            end
+        end)
+        if not ok then
+            print(('[playershop] cell create error id=%s: %s'):format(
+                tostring(e.id), tostring(err)))
         end
     end
+
+    -- Forca o grid layout a recalcular posicoes dos cells. Sem isso, os
+    -- cells as vezes ficam com pos {0,0,0,0} ate o user mexer na janela.
+    if panel.updateLayout then panel:updateLayout() end
 end
 
 -- For stackable items, prompt for the quantity (default = full stack). For
--- non-stackable charged items (UH/GFB/SD), pick 1.
+-- non-stackable items, count is always 1 (each entry is one instance).
 function promptCountAndAssign(slotIndex, entry)
     if not slotIndex or not entry then return end
-    local available = entry.count
-    if available <= 1 then
+    local available = entry.count or 1
+    -- Non-stackable: cada entry eh 1 instancia unica, sem prompt.
+    if not entry.stackable or available <= 1 then
         assignItemDirect(slotIndex, entry, 1)
         destroyPickerWindow()
         return
@@ -288,7 +351,11 @@ end
 function assignItemDirect(index, entry, count)
     local s = slots[index]
     if not s or not s.widget then return end
-    s.entryUid = 0  -- depot-aggregated; server will look up by id
+    -- Pra non-stackables, salvamos o uid virtual da entry pra que o
+    -- filtro do picker (allocatedNonStackUid) saiba que esta instancia
+    -- ja foi alocada. Pra stackables, uid eh irrelevante.
+    s.entryUid = entry.uid or 0
+    s.stackable = entry.stackable and true or false
     s.entryId  = entry.id
     s.count    = count
     s.charges  = entry.charges or 0
@@ -329,6 +396,9 @@ end
 -- ----------------------------------------------------------------------------
 function openCreateShop()
     if createWindow then createWindow:show(); createWindow:raise(); return end
+    -- Snapshot fresco a cada abertura: invalida o cache pro server gerar
+    -- novos uids virtuais consistentes com o estado atual do depot.
+    inventoryList = {}
     createWindow = g_ui.displayUI('playershop.otui', rootWidget)
     -- The OTUI imports several styles; pick the right one explicitly.
     createWindow = g_ui.createWidget('CreateShopWindow', rootWidget)
@@ -341,13 +411,10 @@ function openCreateShop()
     if lastSavedText then
         createWindow:recursiveGetChildById('shopText'):setText(lastSavedText)
     end
-    if lastSavedSlots then
-        for i, e in pairs(lastSavedSlots) do
-            assignItemToSlot(i, e)
-            slots[i].price = e.price or 0
-            slots[i].widget.priceField:setText(tostring(e.price or 0))
-        end
-    end
+    -- NAO restauramos lastSavedSlots automaticamente: depois que uma loja
+    -- vende tudo (ou e cancelada), os items podem nao existir mais no depot.
+    -- Se restaurassemos, o user veria slots "fantasma" que sao rejeitados ao
+    -- iniciar a venda, parecendo "travado". Melhor comecar do zero.
 
     createWindow:recursiveGetChildById('cancelBtn').onClick = function()
         closeCreateShop()
@@ -369,6 +436,9 @@ end
 function closeCreateShop()
     if createWindow then createWindow:destroy(); createWindow = nil end
     if pickerWindow then pickerWindow:destroy(); pickerWindow = nil end
+    -- Limpa o cache pra que a proxima abertura puxe snapshot fresco com
+    -- novos uids virtuais alinhados com o depot atual.
+    inventoryList = {}
 end
 
 function commitCreateShop()
@@ -421,16 +491,23 @@ function create_shop_inventory(buffer)
     local n; n, pos = modules.game_playershop.readPosU16(buffer, pos)
     inventoryList = {}
     for i = 1, n do
-        local uid, id, count, charges, name
+        local uid, id, count, charges, stack, name
         uid,    pos = modules.game_playershop.readPosU32(buffer, pos)
         id,     pos = modules.game_playershop.readPosU16(buffer, pos)
         count,  pos = modules.game_playershop.readPosU16(buffer, pos)
         charges,pos = modules.game_playershop.readPosU16(buffer, pos)
+        stack,  pos = modules.game_playershop.readPosU8(buffer, pos)
         name,   pos = modules.game_playershop.readPosStr(buffer, pos)
         inventoryList[#inventoryList + 1] = {
-            uid = uid, id = id, count = count, charges = charges, name = name
+            uid = uid, id = id, count = count, charges = charges,
+            stackable = stack == 1, name = name
         }
     end
-    -- Refresh the picker if open.
-    if populatePickerList then populatePickerList() end
+    -- Refresh the picker if open. Defer 1 tick por motivo do bug do grid
+    -- layout retornar size 0 na primeira renderizacao.
+    if populatePickerList then
+        scheduleEvent(function()
+            if populatePickerList then populatePickerList() end
+        end, 1)
+    end
 end
