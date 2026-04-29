@@ -65,7 +65,7 @@ CreateShopWindow < MainWindow
     id: textLbl
     anchors.left: parent.left
     anchors.top: parent.top
-    margin-top: 30
+    margin-top: 4
     text: Texto da loja:
 
   TextEdit
@@ -77,14 +77,26 @@ CreateShopWindow < MainWindow
     placeholder: ex. "Vendendo armas baratas!"
     max-length: 50
 
+  VerticalScrollBar
+    id: scrollBar
+    anchors.top: textLbl.bottom
+    anchors.bottom: summaryLbl.top
+    anchors.right: parent.right
+    margin-top: 10
+    margin-bottom: 6
+    width: 12
+    step: 36
+    pixels-scroll: true
+
   ScrollablePanel
     id: slotsPanel
     anchors.left: parent.left
-    anchors.right: parent.right
+    anchors.right: scrollBar.left
     anchors.top: textLbl.bottom
     anchors.bottom: summaryLbl.top
     margin-top: 10
     margin-bottom: 6
+    margin-right: 4
     background-color: #1a1a1a
     padding: 4
     layout:
@@ -92,19 +104,15 @@ CreateShopWindow < MainWindow
       spacing: 0
     vertical-scrollbar: scrollBar
 
-  VerticalScrollBar
-    id: scrollBar
-    anchors.top: slotsPanel.top
-    anchors.bottom: slotsPanel.bottom
-    anchors.right: slotsPanel.right
-    step: 36
-    pixels-scroll: true
-
   Label
     id: summaryLbl
     anchors.left: parent.left
+    anchors.right: parent.right
     anchors.bottom: startBtn.top
     margin-bottom: 6
+    margin-left: 4
+    text-auto-resize: true
+    text-wrap: true
     text: 0 itens, valor total: 0 gold
     color: #FFD700
 

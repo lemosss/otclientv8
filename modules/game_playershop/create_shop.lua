@@ -30,6 +30,27 @@ local function refreshSummary()
     lbl:setText(('%d itens, valor total: %d gold'):format(count, total))
 end
 
+-- "Add slot" pseudo-row with a + button. Always rendered last in the panel.
+local addRowWidget = nil
+local function rebuildAddRow()
+    if not createWindow then return end
+    if addRowWidget then addRowWidget:destroy(); addRowWidget = nil end
+    local panel = createWindow:recursiveGetChildById('slotsPanel')
+    local count = 0
+    for _ in pairs(slots) do count = count + 1 end
+    if count >= MAX_SLOTS then return end
+    addRowWidget = g_ui.createWidget('Button', panel)
+    addRowWidget:setText('+ adicionar item')
+    addRowWidget:setHeight(28)
+    addRowWidget.onClick = function()
+        local nextIdx = count + 1
+        for i = 1, MAX_SLOTS do
+            if not slots[i] then nextIdx = i; break end
+        end
+        addSlot(nextIdx)
+    end
+end
+
 local function buildSlotWidget(index)
     local panel = createWindow:recursiveGetChildById('slotsPanel')
     local row = g_ui.createWidget('ShopSlot', panel)
@@ -58,50 +79,78 @@ local function buildSlotWidget(index)
     return row
 end
 
+-- Add a slot at index (or the first available). Re-renders the add-button.
+function addSlot(index)
+    if not createWindow then return end
+    buildSlotWidget(index)
+    rebuildAddRow()
+    refreshSummary()
+end
+
+-- Initial state: a single empty slot + the add-row button.
 function buildEmptySlots()
     clearSlots()
-    for i = 1, MAX_SLOTS do
-        buildSlotWidget(i)
-    end
+    buildSlotWidget(1)
+    rebuildAddRow()
     refreshSummary()
 end
 
 -- ----------------------------------------------------------------------------
--- Item picker: a small popup listing inventoryList; double-click an item to
--- assign it to slot N.
+-- Item picker: cursor turns into a target arrow (same UX as game_hotkeys
+-- "use with"). The user clicks an item in their backpack/inventory; we extract
+-- it and assign to the slot.
 -- ----------------------------------------------------------------------------
-local pickerWindow
+local mouseGrabberWidget = nil
+local pendingSlotIndex = nil
+
+local function buildGrabber()
+    if mouseGrabberWidget then return end
+    mouseGrabberWidget = g_ui.createWidget('UIWidget')
+    mouseGrabberWidget:setVisible(false)
+    mouseGrabberWidget:setFocusable(false)
+    mouseGrabberWidget.onMouseRelease = function(self, mousePosition, mouseButton)
+        local item, count
+        if mouseButton == MouseLeftButton then
+            local clickedWidget = modules.game_interface.getRootPanel():recursiveGetChildByPos(mousePosition, false)
+            if clickedWidget then
+                if clickedWidget:getClassName() == 'UIItem' and not clickedWidget:isVirtual() then
+                    item = clickedWidget:getItem()
+                end
+            end
+        end
+        g_mouse.popCursor('target')
+        self:ungrabMouse()
+        if item and pendingSlotIndex then
+            assignItemFromUI(pendingSlotIndex, item)
+        end
+        pendingSlotIndex = nil
+        return true
+    end
+end
 
 function openItemPicker(slotIndex)
-    if pickerWindow then pickerWindow:destroy() end
-    pickerWindow = g_ui.displayUI('playershop.otui', rootWidget)
-    pickerWindow = g_ui.createWidget('MainWindow', rootWidget)
-    pickerWindow:setText('Selecione item para slot ' .. slotIndex)
-    pickerWindow:setSize({ width = 380, height = 360 })
+    buildGrabber()
+    if g_ui.isMouseGrabbed() then return end
+    pendingSlotIndex = slotIndex
+    mouseGrabberWidget:grabMouse()
+    g_mouse.pushCursor('target')
+end
 
-    local list = g_ui.createWidget('TextList', pickerWindow)
-    list:addAnchor(AnchorTop, 'parent', AnchorTop)
-    list:addAnchor(AnchorBottom, 'parent', AnchorBottom)
-    list:addAnchor(AnchorLeft, 'parent', AnchorLeft)
-    list:addAnchor(AnchorRight, 'parent', AnchorRight)
-    list:setMarginTop(28); list:setMarginBottom(28)
-
-    for _, e in ipairs(inventoryList) do
-        local label = ('%dx %s (uid:%d, id:%d)'):format(e.count, e.name, e.uid, e.id)
-        local row = g_ui.createWidget('Label', list)
-        row:setText(label)
-        row.entry = e
-        row.onDoubleClick = function()
-            assignItemToSlot(slotIndex, e)
-            pickerWindow:destroy()
-            pickerWindow = nil
-        end
-    end
-
-    -- request fresh inventory from server
-    if modules.game_playershop and modules.game_playershop.sendOpcode then
-        modules.game_playershop.sendOpcode(OPCODE_INVENTORY_LIST, '')
-    end
+-- Assign from a real Item object (engine instance picked via cursor).
+function assignItemFromUI(index, item)
+    local s = slots[index]
+    if not s or not s.widget then return end
+    local id = item:getId()
+    local count = item:getCount() or 1
+    local subType = item:getSubType() or 0
+    s.entryUid = item:getUniqueId() or 0  -- usually 0 for normal items
+    s.entryId  = id
+    s.count    = count
+    s.charges  = subType
+    s.widget.itemSlot:setItemId(id)
+    s.widget.itemSlot:setItemCount(count)
+    s.widget.itemName:setText(('%dx item %d'):format(count, id))
+    refreshSummary()
 end
 
 function assignItemToSlot(index, entry)
@@ -120,11 +169,13 @@ end
 function removeSlot(index)
     local s = slots[index]
     if not s or not s.widget then return end
-    s.entryUid = nil; s.entryId = nil
-    s.widget.itemSlot:setItemId(0)
-    s.widget.itemName:setText('Slot ' .. index .. ' - clique pra escolher')
-    s.widget.priceField:setText('')
-    s.price = 0
+    s.widget:destroy()
+    slots[index] = nil
+    -- Always keep at least one empty slot in the window.
+    local count = 0
+    for _ in pairs(slots) do count = count + 1 end
+    if count == 0 then buildSlotWidget(1) end
+    rebuildAddRow()
     refreshSummary()
 end
 
