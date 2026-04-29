@@ -153,29 +153,31 @@ function openItemPicker(slotIndex)
         populatePickerList()
     end
 
-    -- ESC closes the picker (scoped to this window).
-    g_keyboard.bindKeyPress('Escape', destroyPickerWindow, pickerWindow)
-    -- Enter confirms the selected cell.
-    g_keyboard.bindKeyPress('Return', function()
-        if pickerSelected and pickerSelected.entry then
-            promptCountAndAssign(pendingSlotIndex, pickerSelected.entry)
-        end
-    end, pickerWindow)
-    g_keyboard.bindKeyPress('Enter', function()
-        if pickerSelected and pickerSelected.entry then
-            promptCountAndAssign(pendingSlotIndex, pickerSelected.entry)
-        end
-    end, pickerWindow)
+    -- ESC closes the picker (scoped to this window). Enter/Return foi
+    -- removido porque alguns builds do OTC nao reconhecem o nome 'Return'
+    -- e disparam erro Lua. Click + OK ou double-click funcionam normal.
+    pcall(function()
+        g_keyboard.bindKeyPress('Escape', destroyPickerWindow, pickerWindow)
+    end)
 
-    -- Snapshot ja em cache: popula no proximo frame pra que o grid panel
-    -- ja tenha tido chance de calcular sua largura/altura. Sem o defer, o
-    -- grid as vezes retorna size 0 na primeira chamada e os cells nao
-    -- aparecem ate o user fazer alguma acao (tipo digitar no buscador).
-    if inventoryList and #inventoryList > 0 then
-        scheduleEvent(function()
-            if pickerWindow and populatePickerList then populatePickerList() end
-        end, 1)
-    end
+    -- Real-time: conecta no onGeometryChange do gridPanel pra repopular
+    -- automaticamente assim que o panel ganhar dimensoes validas. Se o
+    -- panel ja estiver layoutado, popula imediato. Wrap em pcall pra
+    -- nao quebrar o resto se a API mudou em alguma versao do OTC.
+    pcall(function()
+        local panel = pickerWindow:recursiveGetChildById('gridPanel')
+        if not panel then return end
+        local function tryPopulate()
+            if pickerWindow and populatePickerList
+                and inventoryList and #inventoryList > 0 then
+                populatePickerList()
+            end
+        end
+        tryPopulate()
+        connect(panel, { onGeometryChange = function(self, oldRect, newRect)
+            tryPopulate()
+        end })
+    end)
 end
 
 local function highlightCell(cell)
@@ -503,11 +505,8 @@ function create_shop_inventory(buffer)
             stackable = stack == 1, name = name
         }
     end
-    -- Refresh the picker if open. Defer 1 tick por motivo do bug do grid
-    -- layout retornar size 0 na primeira renderizacao.
-    if populatePickerList then
-        scheduleEvent(function()
-            if populatePickerList then populatePickerList() end
-        end, 1)
-    end
+    -- Real-time: chama populatePickerList direto. Se o gridPanel ja tem
+    -- geometry, renderiza na hora; senao, o onGeometryChange conectado
+    -- em openItemPicker vai disparar quando o panel ganhar dimensoes.
+    if populatePickerList then populatePickerList() end
 end
