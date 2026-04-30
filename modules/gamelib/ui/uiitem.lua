@@ -38,7 +38,16 @@ function UIItem:onDrop(widget, mousePos, forced)
   local itemPos = item:getPosition()
   if itemPos.x == toPos.x and itemPos.y == toPos.y and itemPos.z == toPos.z then return false end
 
-  if item:getCount() > 1 then
+  local id = item:getId()
+  if id >= 3147 and id <= 3203 then
+    -- Runes drop / move as whole stacks (no quantity prompt). 3147-3203 is the
+    -- 8.0 client.dat range for runes (server ids 2260-2316). The dat flags them
+    -- as charge items, so getCount() returns 1; getCountOrSubType() is the
+    -- visible byte = server-side stack size.
+    local stack = item:getCountOrSubType()
+    if stack < 1 then stack = 1 end
+    g_game.move(item, toPos, stack)
+  elseif item:getCount() > 1 then
     modules.game_interface.moveStackableItem(item, toPos)
   else
     g_game.move(item, toPos, 1)

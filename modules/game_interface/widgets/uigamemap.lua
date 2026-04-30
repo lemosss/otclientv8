@@ -64,8 +64,19 @@ function UIGameMap:onDrop(widget, mousePos)
   local thingPos = thing:getPosition()
   if thingPos.x == toPos.x and thingPos.y == toPos.y and thingPos.z == toPos.z then return false end
 
-  if thing:isItem() and thing:getCount() > 1 then
-    modules.game_interface.moveStackableItem(thing, toPos)
+  if thing:isItem() then
+    local id = thing:getId()
+    if id >= 3147 and id <= 3203 then
+      -- Runes drop as whole stacks (no quantity prompt). 3147-3203 is the 8.0
+      -- client.dat range for runes (server ids 2260-2316).
+      local stack = thing:getCountOrSubType()
+      if stack < 1 then stack = 1 end
+      g_game.move(thing, toPos, stack)
+    elseif thing:getCount() > 1 then
+      modules.game_interface.moveStackableItem(thing, toPos)
+    else
+      g_game.move(thing, toPos, 1)
+    end
   else
     g_game.move(thing, toPos, 1)
   end
