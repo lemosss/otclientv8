@@ -184,7 +184,30 @@ local function patchClickIntercept()
     end
 end
 
+-- Distancia maxima (Chebyshev / SQM) pra abrir uma loja: o vendedor
+-- precisa estar a no maximo 1 tile (adjacente, em qualquer direcao)
+-- e no mesmo floor. Aplicado tanto no left-click quick-open quanto
+-- no menu hook, e tambem como gate pra manter a janela aberta
+-- (server fecha automatico se o comprador se afastar).
+SHOP_OPEN_MAX_DISTANCE = 1
+
+function withinShopRange(creature)
+    local lp = g_game.getLocalPlayer()
+    if not lp or not creature then return false end
+    local a, b = lp:getPosition(), creature:getPosition()
+    if not a or not b or a.z ~= b.z then return false end
+    return math.max(math.abs(a.x - b.x), math.abs(a.y - b.y)) <= SHOP_OPEN_MAX_DISTANCE
+end
+
 function requestShopFromCreature(creature)
+    if not creature then return end
+    if not withinShopRange(creature) then
+        if modules.game_textmessage then
+            modules.game_textmessage.displayBroadcastMessage(
+                "Voce esta longe demais. Aproxime-se do vendedor.")
+        end
+        return
+    end
     local now = nowMs()
     if now - lastShopRequest < 1000 then return end  -- client-side rate limit
     lastShopRequest = now
@@ -406,6 +429,36 @@ function init()
         ProtocolGame.registerExtendedOpcode(OPCODE_SHOP_DATA,            onShopData)
         ProtocolGame.registerExtendedOpcode(OPCODE_INVENTORY_LIST,       onInventoryList)
         ProtocolGame.registerExtendedOpcode(OPCODE_REJECT,               onReject)
+    end)
+    -- Client-side instant auto-close: assim que o local player muda de
+    -- posicao e a viewWindow esta aberta, recalcula a distancia pro
+    -- vendedor. Se passou de 1 SQM, fecha imediato (sem esperar o
+    -- tick do server). O server tambem fecha via reject no proximo
+    -- tick (500ms) -- isso aqui eh so pra UX responsiva.
+    pcall(function()
+        connect(LocalPlayer, {
+            onPositionChange = function(player, newPos, oldPos)
+                if not viewWindow then return end
+                if not viewSellerId or viewSellerId == 0 then return end
+                local seller = g_map.getCreatureById(viewSellerId)
+                if not seller then return end
+                local sp = seller:getPosition()
+                if not sp or not newPos then return end
+                if sp.z ~= newPos.z then
+                    if shop_view_close then shop_view_close() end
+                    return
+                end
+                local dist = math.max(math.abs(sp.x - newPos.x),
+                                      math.abs(sp.y - newPos.y))
+                if dist > SHOP_OPEN_MAX_DISTANCE then
+                    if shop_view_close then shop_view_close() end
+                    if modules.game_textmessage then
+                        modules.game_textmessage.displayBroadcastMessage(
+                            "Voce se afastou do vendedor. Loja fechada.")
+                    end
+                end
+            end
+        })
     end)
     pcall(patchDrawInformation)
     pcall(patchClickIntercept)
