@@ -213,7 +213,7 @@ CreateShopWindow < MainWindow
     anchors.verticalCenter: textLbl.verticalCenter
     margin-left: 8
     placeholder: ex. "Vendendo armas baratas!"
-    max-length: 44
+    max-length: 45
 
   VerticalScrollBar
     id: scrollBar
